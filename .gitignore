@@ -9,3 +9,5 @@ web/latest
 __pycache__
 build/
 dist/
+
+.venv/
