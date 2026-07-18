@@ -3,5 +3,10 @@
     "image": "quic-go-qmux-interop:local",
     "url": "https://github.com/sierrasystems-ai/quic-go/tree/cursor/qmux-review-fixes-d3a5",
     "role": "both"
+  },
+  "quicly": {
+    "image": "quicly-qmux-interop:local",
+    "url": "https://github.com/h2o/quicly/pull/662",
+    "role": "both"
   }
 }
