@@ -27,10 +27,10 @@
 //! QMux demo server supporting HTTP/3 and HTTP/0.9.
 
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::path;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 use clap::Parser;
 use quiche::h3;
@@ -542,12 +542,21 @@ where
     let mut partial_requests: HashMap<u64, Vec<u8>> = HashMap::new();
     // Pending response bodies that need more stream capacity.
     let mut pending_responses: HashMap<u64, (Vec<u8>, usize)> = HashMap::new();
+    // Serialize responses: QMux send scheduling can starve non-active streams
+    // when several large bodies are buffered concurrently (seen with quic-go).
+    let mut response_queue: VecDeque<u64> = VecDeque::new();
+    let mut active_response: Option<u64> = None;
     let mut buf = [0u8; 4096];
 
     // Main event loop.
     loop {
         // Continue any flow-control-blocked responses.
-        flush_pending_http09(&mut conn, &mut pending_responses)?;
+        flush_pending_http09(
+            &mut conn,
+            &mut pending_responses,
+            &mut response_queue,
+            &mut active_response,
+        )?;
 
         // Send any pending data.
         qmux.flush(&mut conn).await?;
@@ -581,6 +590,8 @@ where
                                     &request,
                                     args,
                                     &mut pending_responses,
+                                    &mut response_queue,
+                                    &mut active_response,
                                 )?;
                             }
                         }
@@ -594,7 +605,12 @@ where
             }
         }
 
-        flush_pending_http09(&mut conn, &mut pending_responses)?;
+        flush_pending_http09(
+            &mut conn,
+            &mut pending_responses,
+            &mut response_queue,
+            &mut active_response,
+        )?;
 
         // Flush any responses we just generated.
         qmux.flush(&mut conn).await?;
@@ -605,20 +621,8 @@ where
             break;
         }
 
-        // When responses are in flight, poll so we keep flushing after MAX_*
-        // updates instead of blocking forever on the next TLS read.
-        if !pending_responses.is_empty() {
-            match qmux
-                .recv_timeout(&mut conn, Duration::from_millis(10))
-                .await?
-            {
-                Some(false) => {
-                    log::info!("Peer closed connection");
-                    break;
-                },
-                Some(true) | None => {},
-            }
-        } else if !qmux.recv(&mut conn).await? {
+        // Read more data from the qmux (also wakes on peer MAX_DATA updates).
+        if !qmux.recv(&mut conn).await? {
             log::info!("Peer closed connection");
             break;
         }
@@ -630,6 +634,7 @@ where
 fn queue_http09_response(
     conn: &mut quiche::Connection, stream_id: u64, request: &[u8], args: &Args,
     pending: &mut HashMap<u64, (Vec<u8>, usize)>,
+    queue: &mut VecDeque<u64>, active: &mut Option<u64>,
 ) -> Result<()> {
     let request_str = String::from_utf8_lossy(request);
     log::info!(
@@ -653,59 +658,58 @@ fn queue_http09_response(
         body.len()
     );
     pending.insert(stream_id, (body, 0));
-    flush_pending_http09(conn, pending)
+    queue.push_back(stream_id);
+    flush_pending_http09(conn, pending, queue, active)
 }
 
 fn flush_pending_http09(
     conn: &mut quiche::Connection,
-    pending: &mut HashMap<u64, (Vec<u8>, usize)>,
+    pending: &mut HashMap<u64, (Vec<u8>, usize)>, queue: &mut VecDeque<u64>,
+    active: &mut Option<u64>,
 ) -> Result<()> {
-    // Cap bytes written per stream per flush so concurrent responses stay
-    // interleaved; QMux only round-robins flushable streams when incremental.
-    const MAX_WRITE_PER_STREAM: usize = 32 * 1024;
-
-    let stream_ids: Vec<u64> = pending.keys().copied().collect();
-    for stream_id in stream_ids {
-        // Fair scheduling across concurrent HTTP/0.9 responses.
-        if let Err(e) = conn.stream_priority(stream_id, 0, true) {
-            log::debug!("stream_priority({}): {:?}", stream_id, e);
+    loop {
+        if active.is_none() {
+            *active = queue.pop_front();
+            if let Some(stream_id) = *active {
+                log::info!("Starting HTTP/0.9 response on stream {}", stream_id);
+            }
         }
-
+        let Some(stream_id) = *active else {
+            return Ok(());
+        };
         let Some((body, offset)) = pending.get_mut(&stream_id) else {
+            *active = None;
             continue;
         };
-        let mut written = 0usize;
-        while *offset < body.len() && written < MAX_WRITE_PER_STREAM {
+
+        while *offset < body.len() {
             let fin = false;
             match conn.stream_send(stream_id, &body[*offset..], fin) {
-                Ok(0) => break,
+                Ok(0) => return Ok(()),
                 Ok(n) => {
                     *offset += n;
-                    written += n;
                 },
-                Err(quiche::Error::Done) => break,
+                Err(quiche::Error::Done) => return Ok(()),
                 Err(e) => return Err(e.into()),
             }
         }
-        if *offset >= body.len() {
-            let total = body.len();
-            match conn.stream_send(stream_id, &[], true) {
-                Ok(_) => {
-                    log::info!(
-                        "Finished HTTP/0.9 response on stream {}: {} bytes",
-                        stream_id,
-                        total
-                    );
-                    pending.remove(&stream_id);
-                },
-                Err(quiche::Error::Done) => {
-                    // FIN blocked; retry after peer opens more window.
-                },
-                Err(e) => return Err(e.into()),
-            }
+
+        let total = body.len();
+        match conn.stream_send(stream_id, &[], true) {
+            Ok(_) => {
+                log::info!(
+                    "Finished HTTP/0.9 response on stream {}: {} bytes",
+                    stream_id,
+                    total
+                );
+                pending.remove(&stream_id);
+                *active = None;
+                // Start the next queued response in this flush if possible.
+            },
+            Err(quiche::Error::Done) => return Ok(()),
+            Err(e) => return Err(e.into()),
         }
     }
-    Ok(())
 }
 
 fn send_h3_response(
