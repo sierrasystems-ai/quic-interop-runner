@@ -59,7 +59,7 @@ class TestCaseTransfer(TestCaseQMux):
 
     @staticmethod
     def abbreviation():
-        return "T"
+        return "DC"
 
     @staticmethod
     def desc():
