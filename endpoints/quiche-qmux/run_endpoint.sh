@@ -11,17 +11,22 @@ echo "Using commit:" "$(cat commit.txt)"
 case "$TESTCASE" in
     handshake)
         HTTP_VERSION="0.9"
-        FC_OPTS="--max-data 10000000 --max-stream-data 1000000"
+        CLIENT_FC="--max-data 10000000 --max-stream-data 1000000"
+        SERVER_FC="--max-data 10000000 --max-stream-data 1000000"
         ;;
     transfer)
         HTTP_VERSION="0.9"
-        # Small per-stream windows exercise MAX_STREAM_DATA; keep connection
-        # window large enough for multi-MB concurrent transfers.
-        FC_OPTS="--max-data 16000000 --max-stream-data 65536"
+        # Client: keep receive windows large enough that peers like quicly do not
+        # hit fragile STREAM_DATA_BLOCKED paths (quicly has segfaulted at 64KiB).
+        # Server: connection window large for multi-MB bodies; stream window is
+        # mostly irrelevant for tiny HTTP/0.9 requests.
+        CLIENT_FC="--max-data 16000000 --max-stream-data 1000000"
+        SERVER_FC="--max-data 16000000 --max-stream-data 1000000"
         ;;
     http3)
         HTTP_VERSION="h3"
-        FC_OPTS="--max-data 10000000 --max-stream-data 1000000"
+        CLIENT_FC="--max-data 10000000 --max-stream-data 1000000"
+        SERVER_FC="--max-data 10000000 --max-stream-data 1000000"
         ;;
     *)
         echo "unsupported test case: $TESTCASE"
@@ -40,7 +45,7 @@ if [ "$ROLE" == "client" ]; then
         --no-verify \
         --http-version "$HTTP_VERSION" \
         --dump-dir /downloads \
-        $FC_OPTS \
+        $CLIENT_FC \
         $CLIENT_PARAMS \
         $REQUESTS
 else
@@ -52,6 +57,6 @@ else
         --cert /certs/cert.pem \
         --key /certs/priv.key \
         --root /www \
-        $FC_OPTS \
+        $SERVER_FC \
         $SERVER_PARAMS
 fi
