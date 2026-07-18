@@ -43,10 +43,13 @@ Reference endpoints:
 
 * [quic-go QMux](endpoints/quic-go-qmux/) — [quic-go QMux branch](https://github.com/sierrasystems-ai/quic-go/tree/cursor/qmux-review-fixes-d3a5) (`hq-qmux`, `h3-qmux`)
 * [quicly QMux](endpoints/quicly-qmux/) — [h2o/quicly#662](https://github.com/h2o/quicly/pull/662) / `kazuho/qmux-01` (`hq-qmux`; HTTP/3 not yet)
+* [quiche QMux](endpoints/quiche-qmux/) — [LPardue/quiche `@qmux-support`](https://github.com/LPardue/quiche/commits/qmux-support/) (`hq-qmux`, `h3-qmux`)
 
 ```bash
 ./endpoints/quic-go-qmux/build.sh
 ./endpoints/quicly-qmux/build.sh
+./endpoints/quiche-qmux/build.sh
 python3 run.py -p qmux -s quic-go -c quic-go -t handshake,transfer,http3
 python3 run.py -p qmux -s quicly -c quicly -t handshake,transfer
+python3 run.py -p qmux -s quiche -c quiche -t handshake,transfer,http3
 ```

@@ -8,5 +8,10 @@
     "image": "quicly-qmux-interop:local",
     "url": "https://github.com/h2o/quicly/pull/662",
     "role": "both"
+  },
+  "quiche": {
+    "image": "quiche-qmux-interop:local",
+    "url": "https://github.com/LPardue/quiche/commits/qmux-support/",
+    "role": "both"
   }
 }
