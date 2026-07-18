@@ -7,10 +7,12 @@ from typing import List, Tuple
 import testcase
 from implementations import (
     Role,
+    get_qmux_implementations,
     get_quic_implementations,
     get_webtransport_implementations,
 )
 from interop import InteropRunner
+from testcases_qmux import TESTCASES_QMUX
 from testcases_quic import MEASUREMENTS, TESTCASES_QUIC
 from testcases_webtransport import TESTCASES_WEBTRANSPORT
 
@@ -27,6 +29,8 @@ def main():
             MEASUREMENTS
         ) + "\n  WebTransport:\n" + bullet_list(
             TESTCASES_WEBTRANSPORT
+        ) + "\n  QMux:\n" + bullet_list(
+            TESTCASES_QMUX
         )
 
         parser = argparse.ArgumentParser(
@@ -36,7 +40,7 @@ def main():
             "-p",
             "--protocol",
             default="quic",
-            help="quic / webtransport",
+            help="quic / webtransport / qmux",
         )
         parser.add_argument(
             "-d",
@@ -99,6 +103,8 @@ def main():
         impls = get_quic_implementations()
     elif protocol == "webtransport":
         impls = get_webtransport_implementations()
+    elif protocol == "qmux":
+        impls = get_qmux_implementations()
     else:
         sys.exit("Unknown protocol: " + protocol)
 
@@ -159,6 +165,9 @@ def main():
         elif protocol == "webtransport":
             testcases = TESTCASES_WEBTRANSPORT
             measurements = []  # no measurements in webtransport mode
+        elif protocol == "qmux":
+            testcases = TESTCASES_QMUX
+            measurements = []  # no measurements in qmux mode
         if arg is None:
             return testcases, measurements
         elif arg == "onlyTests":

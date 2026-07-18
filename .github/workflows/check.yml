@@ -21,4 +21,7 @@ jobs:
       - name: check that WebTransport implementations are valid
         if: success() || failure() # run this step even if the previous one failed
         run: python implementations.py -p webtransport
+      - name: check that QMux implementations are valid
+        if: success() || failure() # run this step even if the previous one failed
+        run: python implementations.py -p qmux
       - uses: ludeeus/action-shellcheck@master

@@ -18,6 +18,10 @@ def get_webtransport_implementations() -> Dict[str, Dict[str, str | Role]]:
     return get_implementations("implementations_webtransport.json")
 
 
+def get_qmux_implementations() -> Dict[str, Dict[str, str | Role]]:
+    return get_implementations("implementations_qmux.json")
+
+
 def get_implementations(filename: str) -> Dict[str, Dict[str, str | Role]]:
     implementations: Dict[str, Dict[str, str | Role]] = {}
     with open(filename, "r") as f:
@@ -42,8 +46,8 @@ if __name__ == "__main__":
         "-p",
         "--protocol",
         default="quic",
-        choices=["quic", "webtransport"],
-        help="quic / webtransport",
+        choices=["quic", "webtransport", "qmux"],
+        help="quic / webtransport / qmux",
     )
     args = parser.parse_args()
 
@@ -53,6 +57,9 @@ if __name__ == "__main__":
     elif args.protocol == "webtransport":
         filename = "implementations_webtransport.json"
         impls = get_webtransport_implementations()
+    elif args.protocol == "qmux":
+        filename = "implementations_qmux.json"
+        impls = get_qmux_implementations()
 
     print(f"{filename}:")
     for name, data in impls.items():

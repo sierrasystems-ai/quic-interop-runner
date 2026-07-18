@@ -1,11 +1,12 @@
 # Interop Test Runner
 
-The Interop Test Runner automatically generates interoperability matrices by running test cases across different implementations. It currently supports two protocols:
+The Interop Test Runner automatically generates interoperability matrices by running test cases across different implementations. It currently supports three protocols:
 
 * **[QUIC](quic.md)**
 * **[WebTransport](webtransport.md)**
+* **[QMux](qmux.md)**
 
-Registered implementations and their Docker images are listed in [implementations_quic.json](implementations_quic.json) and [implementations_webtransport.json](implementations_webtransport.json).
+Registered implementations and their Docker images are listed in [implementations_quic.json](implementations_quic.json), [implementations_webtransport.json](implementations_webtransport.json), and [implementations_qmux.json](implementations_qmux.json).
 
 Live results are published at [interop.seemann.io](https://interop.seemann.io/).
 
@@ -41,6 +42,13 @@ Run WebTransport interop tests:
 python3 run.py -p webtransport
 ```
 
+Run QMux interop tests (build the reference endpoint first; see [qmux.md](qmux.md)):
+
+```bash
+./endpoints/quic-go-qmux/build.sh
+python3 run.py -p qmux
+```
+
 Use `-s` and `-c` to select specific server and client implementations, and `-t` to select specific test cases:
 
 ```bash
@@ -53,9 +61,9 @@ Each implementation is packaged as a Docker image. The test runner communicates 
 
 The test case is passed using the `TESTCASE` environment variable. If your implementation doesn't support a test case, it MUST exit with status code 127. This allows new test cases to be added without breaking existing implementations.
 
-See [quic.md](quic.md) and [webtransport.md](webtransport.md) for protocol-specific setup instructions and test case definitions.
+See [quic.md](quic.md), [webtransport.md](webtransport.md), and [qmux.md](qmux.md) for protocol-specific setup instructions and test case definitions.
 
-To add your implementation, create a Docker image following the instructions for [setting up an endpoint in the quic-network-simulator](https://github.com/quic-interop/quic-network-simulator), publish it on [Docker Hub](https://hub.docker.com) and add it to [implementations_quic.json](implementations_quic.json) or [implementations_webtransport.json](implementations_webtransport.json). Once your implementation is ready to interop, please send us a PR with this addition.
+To add your implementation, create a Docker image following the instructions for [setting up an endpoint in the quic-network-simulator](https://github.com/quic-interop/quic-network-simulator), publish it on [Docker Hub](https://hub.docker.com) and add it to [implementations_quic.json](implementations_quic.json), [implementations_webtransport.json](implementations_webtransport.json), or [implementations_qmux.json](implementations_qmux.json). Once your implementation is ready to interop, please send us a PR with this addition.
 
 ### Multi-Platform Builds
 

@@ -7,7 +7,9 @@
   var currentProtocol = "quic";
 
   function sanitizeProtocol(protocol) {
-    return protocol === "webtransport" ? "webtransport" : "quic";
+    if (protocol === "webtransport" || protocol === "qmux")
+      return protocol;
+    return "quic";
   }
 
   function getProtocolFromPathname(pathname) {
@@ -40,7 +42,7 @@
   }
 
   function setMeasurementVisibility() {
-    var showMeasurements = currentProtocol !== "webtransport";
+    var showMeasurements = currentProtocol === "quic";
     var measurementsSection = document.getElementById("measurements-section");
     measurementsSection.style.display = showMeasurements ? "" : "none";
   }
@@ -367,7 +369,11 @@
   if (protocolSelect) {
     Array.prototype.forEach.call(protocolSelect.options, function(option) {
       if (!option.value) {
-        option.value = option.textContent.trim().toLowerCase() === "webtransport" ? "webtransport" : "quic";
+        var text = option.textContent.trim().toLowerCase();
+        if (text === "webtransport" || text === "qmux")
+          option.value = text;
+        else
+          option.value = "quic";
       }
     });
     protocolSelect.addEventListener("change", function(ev) {
@@ -380,7 +386,7 @@
     });
   }
 
-  var protocolInPath = window.location.pathname.match(/^\/(quic|webtransport)\/?$/);
+  var protocolInPath = window.location.pathname.match(/^\/(quic|webtransport|qmux)\/?$/);
   if (!protocolInPath) {
     var normalizedParams = getCurrentParams();
     var normalizedQuery = normalizedParams.toString();

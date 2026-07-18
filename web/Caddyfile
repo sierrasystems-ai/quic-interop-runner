@@ -7,7 +7,7 @@ root * /var/www/web
 
 redir / /quic?{http.request.uri.query} 302
 
-@protocol_paths path /quic /quic/ /webtransport /webtransport/
+@protocol_paths path /quic /quic/ /webtransport /webtransport/ /qmux /qmux/
 rewrite @protocol_paths /index.html
 
 # Allow external sites to download our JSON files.
