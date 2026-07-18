@@ -474,6 +474,9 @@ where
         // Process any received DATAGRAMs.
         recv_dgrams(conn);
 
+        // Emit flow-control updates after consuming bodies.
+        qmux.flush(conn).await?;
+
         if pending_streams.is_empty() {
             break;
         }
@@ -575,6 +578,9 @@ where
                 }
             }
         }
+
+        // Emit MAX_DATA / MAX_STREAM_DATA after consuming response bytes.
+        qmux.flush(conn).await?;
 
         if pending.values().all(|done| *done) || conn.is_closed() {
             break;

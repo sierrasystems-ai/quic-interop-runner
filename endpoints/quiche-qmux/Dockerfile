@@ -15,11 +15,17 @@ RUN find . -type f \( -name '*.rs' -o -name '*.h' -o -name '*.c' -o -name '*.md'
         sed -i 's/hqx-01/hq-qmux/g; s/h3qx-01/h3-qmux/g' "$f"; \
       done
 
-# Overlay interop client with multi-URL HTTP/0.9 dumps to /downloads.
+# Upstream qmux-support: recv_qmux must refresh tx_cap after MAX_DATA (same as
+# the QUIC recv path). Without this, connection-level FC stalls permanently.
+COPY patches/0001-qmux-update-tx-cap-on-recv.patch /tmp/
+RUN patch -p1 < /tmp/0001-qmux-update-tx-cap-on-recv.patch
+
+# Overlay interop client/server: multi-URL dumps + chunked HTTP/0.9 sends.
 COPY qmux-client.rs qmux-demo/src/bin/qmux-client.rs
+COPY qmux-server.rs qmux-demo/src/bin/qmux-server.rs
 
 RUN apt-get update \
- && apt-get install -y cmake \
+ && apt-get install -y cmake clang libclang-dev pkg-config \
  && rm -rf /var/lib/apt/lists/* \
  && cargo build --release -p qmux-demo
 

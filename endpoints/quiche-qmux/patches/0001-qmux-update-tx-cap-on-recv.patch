@@ -1,0 +1,14 @@
+--- a/quiche/src/qmux.rs
++++ b/quiche/src/qmux.rs
+@@ -270,6 +270,11 @@
+         // Update idle timer and byte counter.
+         self.recv_bytes += record_len as u64;
+ 
++        // Refresh send capacity after flow-control updates (MAX_DATA).
++        // The QUIC datagram recv path does this; QMux must too or tx_cap
++        // stays 0 after the connection window is exhausted.
++        self.update_tx_cap();
++
+         if let Some(idle_timeout) = self.idle_timeout() {
+             self.idle_timer = Some(now + idle_timeout);
+         }

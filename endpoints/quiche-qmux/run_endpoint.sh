@@ -15,8 +15,9 @@ case "$TESTCASE" in
         ;;
     transfer)
         HTTP_VERSION="0.9"
-        # Small windows so transfer exercises stream/connection flow control.
-        FC_OPTS="--max-data 131072 --max-stream-data 65536"
+        # Small per-stream windows exercise MAX_STREAM_DATA; keep connection
+        # window large enough for multi-MB concurrent transfers.
+        FC_OPTS="--max-data 16000000 --max-stream-data 65536"
         ;;
     http3)
         HTTP_VERSION="h3"

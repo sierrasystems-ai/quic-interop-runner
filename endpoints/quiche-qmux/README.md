@@ -2,7 +2,7 @@
 
 HTTP/0.9 and HTTP/3 over QMux endpoint built from [LPardue/quiche `@qmux-support`](https://github.com/LPardue/quiche/commits/qmux-support/).
 
-Uses the upstream `qmux-demo` binaries with ALPNs remapped to the interop suite tokens (`hq-qmux`, `h3-qmux`) and a client overlay that dumps multi-file downloads into `/downloads`.
+Uses the upstream `qmux-demo` binaries with ALPNs remapped to the interop suite tokens (`hq-qmux`, `h3-qmux`), overlays that dump multi-file downloads and chunk HTTP/0.9 responses under flow control, and a small library patch so `recv_qmux` refreshes send capacity after `MAX_DATA` (required for peers with small initial connection windows such as quic-go).
 
 | TESTCASE | ALPN | Application |
 | --- | --- | --- |
