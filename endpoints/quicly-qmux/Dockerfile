@@ -23,8 +23,11 @@ FROM martenseemann/quic-network-simulator-endpoint:latest
 
 WORKDIR /quicly
 
+# Runtime image is newer Ubuntu; ship OpenSSL 1.1 used by the ubuntu2004 build.
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libcrypto.so.1.1 /usr/lib/x86_64-linux-gnu/
 COPY --from=builder /quicly/qmux_interop /quicly/commit.txt ./
 COPY run_endpoint.sh .
-RUN chmod +x run_endpoint.sh
+RUN chmod +x run_endpoint.sh \
+ && ldconfig
 
 ENTRYPOINT [ "./run_endpoint.sh" ]

@@ -363,15 +363,55 @@ static int client_open_requests(quicly_conn_t *conn, struct st_conn_ctx_t *ctx)
     return 0;
 }
 
-static int run_qmux_session(int fd, ptls_t *tls, quicly_conn_t *conn, struct st_conn_ctx_t *ctx)
+static int qmux_feed_pending(quicly_conn_t *conn, ptls_buffer_t *pending)
 {
-    ptls_buffer_t encbuf;
+    while (pending->off > 0) {
+        size_t consumed = pending->off;
+        quicly_error_t qret = quicly_qmux_receive(conn, pending->base, &consumed);
+        if (qret == QUICLY_ERROR_IS_CLOSING)
+            return 1;
+        if (qret != 0) {
+            fprintf(stderr, "quicly_qmux_receive: %" PRId64 "\n", (int64_t)qret);
+            return -1;
+        }
+        if (consumed == 0)
+            break; /* incomplete record; wait for more bytes */
+        if (consumed < pending->off)
+            memmove(pending->base, pending->base + consumed, pending->off - consumed);
+        pending->off -= consumed;
+    }
+    return 0;
+}
+
+static int run_qmux_session(int fd, ptls_t *tls, quicly_conn_t *conn, struct st_conn_ctx_t *ctx, ptls_buffer_t *early_appdata)
+{
+    ptls_buffer_t encbuf, qpending;
     uint8_t rbuf[16384];
     int ret = 0;
 
     ptls_buffer_init(&encbuf, "", 0);
+    ptls_buffer_init(&qpending, "", 0);
     set_nonblock(fd);
     *quicly_get_data(conn) = ctx;
+
+    if (early_appdata != NULL && early_appdata->off != 0) {
+        if (ptls_buffer_reserve(&qpending, early_appdata->off) != 0) {
+            ret = -1;
+            goto Exit;
+        }
+        memcpy(qpending.base, early_appdata->base, early_appdata->off);
+        qpending.off = early_appdata->off;
+        early_appdata->off = 0;
+        {
+            int feed = qmux_feed_pending(conn, &qpending);
+            if (feed < 0) {
+                ret = -1;
+                goto Exit;
+            }
+            if (feed > 0)
+                goto closed;
+        }
+    }
 
     /* server: send transport parameters immediately */
     if (ctx->is_server) {
@@ -445,60 +485,72 @@ static int run_qmux_session(int fd, ptls_t *tls, quicly_conn_t *conn, struct st_
             }
         }
 
-        if (nfds == 0 || FD_ISSET(fd, &rfds)) {
-            if (FD_ISSET(fd, &rfds)) {
-                ssize_t n = read(fd, rbuf, sizeof(rbuf));
-                if (n < 0) {
-                    if (errno == EAGAIN || errno == EWOULDBLOCK)
-                        continue;
+        if (FD_ISSET(fd, &rfds)) {
+            ssize_t n = read(fd, rbuf, sizeof(rbuf));
+            if (n < 0) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK)
+                    continue;
+                ret = -1;
+                goto Exit;
+            }
+            if (n == 0)
+                break;
+
+            size_t off = 0;
+            while (off < (size_t)n) {
+                ptls_buffer_t decryptbuf;
+                size_t consumed = (size_t)n - off;
+                ptls_buffer_init(&decryptbuf, "", 0);
+                if ((ret = ptls_receive(tls, &decryptbuf, rbuf + off, &consumed)) != 0) {
+                    fprintf(stderr, "ptls_receive: %d\n", ret);
+                    ptls_buffer_dispose(&decryptbuf);
                     ret = -1;
                     goto Exit;
                 }
-                if (n == 0)
-                    break;
-
-                size_t off = 0;
-                while (off < (size_t)n) {
-                    ptls_buffer_t decryptbuf;
-                    size_t consumed = (size_t)n - off;
-                    ptls_buffer_init(&decryptbuf, "", 0);
-                    if ((ret = ptls_receive(tls, &decryptbuf, rbuf + off, &consumed)) != 0) {
-                        fprintf(stderr, "ptls_receive: %d\n", ret);
+                off += consumed;
+                if (decryptbuf.off != 0) {
+                    if (ptls_buffer_reserve(&qpending, decryptbuf.off) != 0) {
                         ptls_buffer_dispose(&decryptbuf);
                         ret = -1;
                         goto Exit;
                     }
-                    off += consumed;
-                    size_t qoff = 0;
-                    while (qoff < decryptbuf.off) {
-                        size_t qconsumed = decryptbuf.off - qoff;
-                        quicly_error_t qret = quicly_qmux_receive(conn, decryptbuf.base + qoff, &qconsumed);
-                        if (qret != 0) {
-                            fprintf(stderr, "quicly_qmux_receive: %" PRId64 "\n", (int64_t)qret);
-                            ptls_buffer_dispose(&decryptbuf);
-                            ret = -1;
-                            goto Exit;
-                        }
-                        if (qconsumed == 0)
-                            break;
-                        qoff += qconsumed;
-                    }
-                    ptls_buffer_dispose(&decryptbuf);
+                    memcpy(qpending.base + qpending.off, decryptbuf.base, decryptbuf.off);
+                    qpending.off += decryptbuf.off;
                 }
-                ret = 0;
+                ptls_buffer_dispose(&decryptbuf);
+
+                {
+                    int feed = qmux_feed_pending(conn, &qpending);
+                    if (feed < 0) {
+                        ret = -1;
+                        goto Exit;
+                    }
+                    if (feed > 0)
+                        goto closed;
+                }
             }
+            ret = 0;
         }
     }
 
     if (!ctx->is_server)
         ret = ctx->transfer_ok ? 0 : -1;
+    goto Exit;
+
+closed:
+    /* peer closed; success if client finished downloads (or we are the server) */
+    ret = (ctx->is_server || ctx->transfer_ok) ? 0 : -1;
 
 Exit:
     ptls_buffer_dispose(&encbuf);
+    ptls_buffer_dispose(&qpending);
     return ret;
 }
 
-static int tls_handshake_loop(int fd, ptls_t *tls, ptls_handshake_properties_t *hsprop, int is_server)
+/* Returns 0 on success. Any TLS application data already read after the
+ * handshake is appended to early_appdata for the QMux session to consume. */
+static int tls_handshake_loop(int fd, ptls_t *tls, ptls_handshake_properties_t *hsprop, int is_server,
+                              ptls_buffer_t *early_appdata)
 {
     ptls_buffer_t sendbuf;
     uint8_t rbuf[16384];
@@ -533,6 +585,28 @@ static int tls_handshake_loop(int fd, ptls_t *tls, ptls_handshake_properties_t *
         size_t off = 0;
         while (off < (size_t)n) {
             size_t consumed = (size_t)n - off;
+            if (ptls_handshake_is_complete(tls)) {
+                /* Remaining bytes are encrypted 1-RTT; decrypt into early_appdata. */
+                ptls_buffer_t decryptbuf;
+                ptls_buffer_init(&decryptbuf, "", 0);
+                if ((ret = ptls_receive(tls, &decryptbuf, rbuf + off, &consumed)) != 0) {
+                    ptls_buffer_dispose(&decryptbuf);
+                    goto Exit;
+                }
+                off += consumed;
+                if (decryptbuf.off != 0) {
+                    if (ptls_buffer_reserve(early_appdata, decryptbuf.off) != 0) {
+                        ptls_buffer_dispose(&decryptbuf);
+                        ret = -1;
+                        goto Exit;
+                    }
+                    memcpy(early_appdata->base + early_appdata->off, decryptbuf.base, decryptbuf.off);
+                    early_appdata->off += decryptbuf.off;
+                }
+                ptls_buffer_dispose(&decryptbuf);
+                ret = 0;
+                continue;
+            }
             ret = ptls_handshake(tls, &sendbuf, rbuf + off, &consumed, hsprop);
             if (ret != 0 && ret != PTLS_ERROR_IN_PROGRESS)
                 goto Exit;
@@ -569,9 +643,12 @@ static void init_contexts(int small_windows)
     qctx.transport_params.max_idle_timeout = 60 * 1000;
     qctx.transport_params.max_streams_bidi = 100;
     if (small_windows) {
+        /* Small per-stream windows so transfer exercises MAX_STREAM_DATA updates.
+         * Connection window stays large: quicly's QMux receive path does not yet
+         * schedule MAX_DATA the way the 1-RTT UDP path does (see h2o/quicly#662). */
         qctx.transport_params.max_stream_data.bidi_local = 64 * 1024;
         qctx.transport_params.max_stream_data.bidi_remote = 64 * 1024;
-        qctx.transport_params.max_data = 128 * 1024;
+        qctx.transport_params.max_data = 16 * 1024 * 1024;
     }
 
     memset(&tlsctx, 0, sizeof(tlsctx));
@@ -663,9 +740,12 @@ int main(int argc, char **argv)
                 continue;
             }
 
-            ret = tls_handshake_loop(connfd, tls, &hsprop, 1);
+            ptls_buffer_t early_appdata;
+            ptls_buffer_init(&early_appdata, "", 0);
+            ret = tls_handshake_loop(connfd, tls, &hsprop, 1, &early_appdata);
             if (ret != 0) {
                 fprintf(stderr, "TLS handshake failed\n");
+                ptls_buffer_dispose(&early_appdata);
                 ptls_free(tls);
                 close(connfd);
                 continue;
@@ -673,6 +753,7 @@ int main(int argc, char **argv)
 
             conn = quicly_qmux_new(&qctx, 0, NULL);
             if (conn == NULL) {
+                ptls_buffer_dispose(&early_appdata);
                 ptls_free(tls);
                 close(connfd);
                 continue;
@@ -680,7 +761,8 @@ int main(int argc, char **argv)
 
             ctx.is_server = 1;
             ctx.www_dir = www_dir;
-            run_qmux_session(connfd, tls, conn, &ctx);
+            run_qmux_session(connfd, tls, conn, &ctx, &early_appdata);
+            ptls_buffer_dispose(&early_appdata);
             quicly_free(conn);
             ptls_free(tls);
             close(connfd);
@@ -736,9 +818,12 @@ int main(int argc, char **argv)
         hsprop.client.negotiated_protocols.count = 1;
         hsprop.client.negotiated_protocols.list = &alpn_hq;
 
-        ret = tls_handshake_loop(fd, tls, &hsprop, 0);
+        ptls_buffer_t early_appdata;
+        ptls_buffer_init(&early_appdata, "", 0);
+        ret = tls_handshake_loop(fd, tls, &hsprop, 0, &early_appdata);
         if (ret != 0) {
             fprintf(stderr, "TLS handshake failed\n");
+            ptls_buffer_dispose(&early_appdata);
             ptls_free(tls);
             close(fd);
             return 1;
@@ -746,6 +831,7 @@ int main(int argc, char **argv)
 
         conn = quicly_qmux_new(&qctx, 1, NULL);
         if (conn == NULL) {
+            ptls_buffer_dispose(&early_appdata);
             ptls_free(tls);
             close(fd);
             return 1;
@@ -755,7 +841,8 @@ int main(int argc, char **argv)
         ctx.paths = paths;
         ctx.num_paths = num_paths;
         ctx.download_dir = download_dir;
-        ret = run_qmux_session(fd, tls, conn, &ctx);
+        ret = run_qmux_session(fd, tls, conn, &ctx, &early_appdata);
+        ptls_buffer_dispose(&early_appdata);
         quicly_free(conn);
         ptls_free(tls);
         close(fd);
