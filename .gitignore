@@ -5,6 +5,8 @@ logs_*/
 !implementations_*.json
 web/latest
 
+.venv/
+
 *.egg-info/
 __pycache__
 build/
