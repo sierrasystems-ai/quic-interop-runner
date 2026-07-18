@@ -30,6 +30,7 @@ use std::collections::HashMap;
 use std::path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use clap::Parser;
 use quiche::h3;
@@ -604,8 +605,20 @@ where
             break;
         }
 
-        // Read more data from the qmux (also wakes on peer MAX_DATA updates).
-        if !qmux.recv(&mut conn).await? {
+        // When responses are in flight, poll so we keep flushing after MAX_*
+        // updates instead of blocking forever on the next TLS read.
+        if !pending_responses.is_empty() {
+            match qmux
+                .recv_timeout(&mut conn, Duration::from_millis(10))
+                .await?
+            {
+                Some(false) => {
+                    log::info!("Peer closed connection");
+                    break;
+                },
+                Some(true) | None => {},
+            }
+        } else if !qmux.recv(&mut conn).await? {
             log::info!("Peer closed connection");
             break;
         }
@@ -647,17 +660,28 @@ fn flush_pending_http09(
     conn: &mut quiche::Connection,
     pending: &mut HashMap<u64, (Vec<u8>, usize)>,
 ) -> Result<()> {
+    // Cap bytes written per stream per flush so concurrent responses stay
+    // interleaved; QMux only round-robins flushable streams when incremental.
+    const MAX_WRITE_PER_STREAM: usize = 32 * 1024;
+
     let stream_ids: Vec<u64> = pending.keys().copied().collect();
     for stream_id in stream_ids {
+        // Fair scheduling across concurrent HTTP/0.9 responses.
+        if let Err(e) = conn.stream_priority(stream_id, 0, true) {
+            log::debug!("stream_priority({}): {:?}", stream_id, e);
+        }
+
         let Some((body, offset)) = pending.get_mut(&stream_id) else {
             continue;
         };
-        while *offset < body.len() {
+        let mut written = 0usize;
+        while *offset < body.len() && written < MAX_WRITE_PER_STREAM {
             let fin = false;
             match conn.stream_send(stream_id, &body[*offset..], fin) {
                 Ok(0) => break,
                 Ok(n) => {
                     *offset += n;
+                    written += n;
                 },
                 Err(quiche::Error::Done) => break,
                 Err(e) => return Err(e.into()),
