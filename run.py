@@ -206,6 +206,11 @@ def main():
     for kind in [clients, servers]:
         if len(kind) == 1:
             no_auto_unsupported.add(kind[0])
+    compose_files = "docker-compose.yml"
+    if protocol == "qmux":
+        # Standalone topology: client/server/sim share qmuxnet (see docker-compose.qmux.yml).
+        compose_files = "docker-compose.qmux.yml"
+
     return InteropRunner(
         implementations=implementations_all,
         client_server_pairs=get_impl_pairs(clients, servers, get_args().must_include),
@@ -223,6 +228,7 @@ def main():
                 get_args().no_auto_unsupported, clients + servers, "Client/Server"
             )
         ),
+        compose_files=compose_files,
     ).run()
 
 

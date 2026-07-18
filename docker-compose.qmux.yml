@@ -1,0 +1,89 @@
+# Standalone compose file for QMux interop.
+# Client and server share a bridge for TLS/TCP. A lightweight synchronizer
+# replaces the ns-3 simulator so endpoints can still wait on sim:57832.
+services:
+  sim:
+    image: alpine:3.18
+    container_name: sim
+    hostname: sim
+    # Accept TCP connections on 57832; endpoints use /wait-for-it.sh against this.
+    command:
+      [
+        "sh",
+        "-c",
+        "mkdir -p /logs && apk add --no-cache socat >/dev/null && socat TCP-LISTEN:57832,fork,reuseaddr SYSTEM:'sleep 36000'",
+      ]
+    networks:
+      qmuxnet:
+        ipv4_address: 10.89.0.2
+
+  server:
+    image: $SERVER
+    container_name: server
+    hostname: server
+    stdin_open: true
+    tty: true
+    volumes:
+      - $SERVER_WWW:/www:ro
+      - $SERVER_DOWNLOADS:/downloads:delegated
+      - $CERTS:/certs:ro
+    environment:
+      - CRON=$CRON
+      - ROLE=server
+      - SERVER_PARAMS=$SERVER_PARAMS
+      - SSLKEYLOGFILE=/logs/keys.log
+      - QLOGDIR=/logs/qlog/
+      - TESTCASE=$TESTCASE_SERVER
+      - REQUESTS=$REQUESTS_SERVER
+      - PROTOCOLS=$PROTOCOLS_SERVER
+    depends_on:
+      - sim
+    cap_add:
+      - NET_ADMIN
+    ulimits:
+      memlock: 67108864
+    networks:
+      qmuxnet:
+        ipv4_address: 10.89.0.100
+    extra_hosts:
+      - "server4:10.89.0.100"
+      - "sim:10.89.0.2"
+
+  client:
+    image: $CLIENT
+    container_name: client
+    hostname: client
+    stdin_open: true
+    tty: true
+    volumes:
+      - $CLIENT_WWW:/www:ro
+      - $CLIENT_DOWNLOADS:/downloads:delegated
+      - $CERTS:/certs:ro
+    environment:
+      - CRON=$CRON
+      - ROLE=client
+      - CLIENT_PARAMS=$CLIENT_PARAMS
+      - SSLKEYLOGFILE=/logs/keys.log
+      - QLOGDIR=/logs/qlog/
+      - TESTCASE=$TESTCASE_CLIENT
+      - REQUESTS=$REQUESTS_CLIENT
+      - PROTOCOLS=$PROTOCOLS_CLIENT
+    depends_on:
+      - sim
+    cap_add:
+      - NET_ADMIN
+    ulimits:
+      memlock: 67108864
+    networks:
+      qmuxnet:
+        ipv4_address: 10.89.0.200
+    extra_hosts:
+      - "server4:10.89.0.100"
+      - "sim:10.89.0.2"
+
+networks:
+  qmuxnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.89.0.0/24

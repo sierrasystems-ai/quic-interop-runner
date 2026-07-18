@@ -2,7 +2,9 @@
 
 QMux ([draft-ietf-quic-qmux](https://datatracker.ietf.org/doc/draft-ietf-quic-qmux/)) provides QUIC's stream and datagram operations over a single bi-directional byte stream such as TLS over TCP.
 
-This interop suite exercises QMux version 1 as specified in [draft-ietf-quic-qmux-02](https://www.ietf.org/archive/id/draft-ietf-quic-qmux-02.txt). Endpoints run over **TLS 1.3 on TCP port 443**. Traffic is still routed through the [quic-network-simulator](https://github.com/quic-interop/quic-network-simulator); QMux tests disable the simulator's QUIC-specific `WAITFORSERVER` probe because that probe speaks UDP/QUIC Version Negotiation.
+This interop suite exercises QMux version 1 as specified in [draft-ietf-quic-qmux-02](https://www.ietf.org/archive/id/draft-ietf-quic-qmux-02.txt). Endpoints run over **TLS 1.3 on TCP port 443**.
+
+For this initial test version, QMux runs use `docker-compose.qmux.yml`: client and server share a `qmuxnet` bridge for TLS/TCP, and a lightweight TCP synchronizer fills the `sim:57832` role that endpoints wait on. Path simulation through ns-3 is left for a later revision once TCP forwarding through the FdNetDevice is wired up for QMux.
 
 The Interop Runner mounts `/www` into your server Docker container, containing one or more randomly generated files. Your server is expected to listen on TCP port 443 and serve files from this directory.
 

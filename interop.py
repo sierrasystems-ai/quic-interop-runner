@@ -44,6 +44,7 @@ class InteropRunner:
     _log_dir = ""
     _save_files = False
     _no_auto_unsupported = []
+    _compose_files = "docker-compose.yml"
 
     def __init__(
         self,
@@ -57,6 +58,7 @@ class InteropRunner:
         save_files=False,
         log_dir="",
         no_auto_unsupported=[],
+        compose_files: str = "docker-compose.yml",
     ):
         logger = logging.getLogger()
         logger.setLevel(logging.DEBUG)
@@ -76,6 +78,7 @@ class InteropRunner:
         self._log_dir = log_dir
         self._save_files = save_files
         self._no_auto_unsupported = no_auto_unsupported
+        self._compose_files = compose_files
         if len(self._log_dir) == 0:
             self._log_dir = "logs_{:%Y-%m-%dT%H:%M:%S}".format(self._start_time)
         if os.path.exists(self._log_dir):
@@ -90,6 +93,9 @@ class InteropRunner:
                 self.measurement_results.setdefault(server, {}).setdefault(
                     client, {}
                 ).setdefault(measurement, {})
+
+    def _docker_compose(self) -> str:
+        return "docker compose -f " + " -f ".join(self._compose_files.split(":"))
 
     def _is_unsupported(self, lines: List[str]) -> bool:
         return any("exited with code 127" in str(line) for line in lines) or any(
@@ -144,7 +150,8 @@ class InteropRunner:
                 "SERVER="
                 + self._implementations[name]["image"]
                 + " "  # only needed so docker compose doesn't complain
-                "docker compose --env-file empty.env up --timeout 0 --abort-on-container-exit -V sim client"
+                + self._docker_compose()
+                + " --env-file empty.env up --timeout 0 --abort-on-container-exit -V sim client"
             )
             output = subprocess.run(
                 cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
@@ -173,8 +180,11 @@ class InteropRunner:
                 "CLIENT="
                 + self._implementations[name]["image"]
                 + " "  # only needed so docker compose doesn't complain
-                "SERVER=" + self._implementations[name]["image"] + " "
-                "docker compose --env-file empty.env up -V server"
+                "SERVER="
+                + self._implementations[name]["image"]
+                + " "
+                + self._docker_compose()
+                + " --env-file empty.env up -V server"
             )
             output = subprocess.run(
                 cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
@@ -369,11 +379,12 @@ class InteropRunner:
             stderr=subprocess.STDOUT,
         )
         if r.returncode != 0:
-            logging.info(
-                "Copying logs from %s failed: %s",
-                container,
-                r.stdout.decode("utf-8", errors="replace"),
-            )
+            # The QMux synchronizer container has no /logs directory.
+            msg = r.stdout.decode("utf-8", errors="replace")
+            if "Could not find the file /logs" in msg:
+                logging.debug("No /logs in %s; skipping.", container)
+                return
+            logging.info("Copying logs from %s failed: %s", container, msg)
 
     def _run_testcase(
         self, server: str, client: str, test: Callable[[], testcases_quic.TestCase]
@@ -436,7 +447,9 @@ class InteropRunner:
         containers = "sim client server " + " ".join(test.additional_containers())
         cmd = (
             params
-            + " docker compose --env-file empty.env up --abort-on-container-exit --timeout 10 "
+            + " "
+            + self._docker_compose()
+            + " --env-file empty.env up --abort-on-container-exit --timeout 10 "
             + containers
         )
         logging.debug("Command: %s", cmd)
@@ -462,7 +475,7 @@ class InteropRunner:
         if expired:
             logging.debug("Test failed: took longer than %ds.", test.timeout())
             r = subprocess.run(
-                "docker compose --env-file empty.env stop " + containers,
+                self._docker_compose() + " --env-file empty.env stop " + containers,
                 shell=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
