@@ -1,0 +1,19 @@
+--- a/quiche/src/qmux.rs
++++ b/quiche/src/qmux.rs
+@@ -459,6 +459,16 @@
+         }
+ 
+         // Send MAX_DATA if needed.
++        // Mirror the UDP send path: evaluate connection flow control here.
++        // Unlike QUIC packetization, QMux does not run that check elsewhere,
++        // so without it the receiver never emits organic MAX_DATA updates and
++        // small-window transfers stall once initial_max_data is exhausted.
++        if self.flow_control.should_update_max_data() &&
++            self.flow_control.max_data() < self.flow_control.max_data_next()
++        {
++            self.should_send_max_data = true;
++        }
++
+         if self.should_send_max_data {
+             let max = self.flow_control.max_data_next();
+             let frame = frame::Frame::MaxData { max };

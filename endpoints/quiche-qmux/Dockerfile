@@ -15,10 +15,17 @@ RUN find . -type f \( -name '*.rs' -o -name '*.h' -o -name '*.c' -o -name '*.md'
         sed -i 's/hqx-01/hq-qmux/g; s/h3qx-01/h3-qmux/g' "$f"; \
       done
 
-# Upstream qmux-support: recv_qmux must refresh tx_cap after MAX_DATA (same as
-# the QUIC recv path). Without this, connection-level FC stalls permanently.
-COPY patches/0001-qmux-update-tx-cap-on-recv.patch /tmp/
-RUN patch -p1 < /tmp/0001-qmux-update-tx-cap-on-recv.patch
+# Upstream qmux-support library fixes needed for small-window transfer:
+# 1) emit organic MAX_DATA from connection flow control (UDP send path does)
+# 2) refresh tx_cap after MAX_DATA (QUIC recv path already does this)
+# 3) round-robin flushable streams so one body cannot starve siblings
+COPY patches/0001-qmux-update-tx-cap-on-recv.patch \
+     patches/0002-qmux-round-robin-flushable-streams.patch \
+     patches/0003-qmux-emit-max-data-from-flow-control.patch \
+     /tmp/
+RUN patch -p1 < /tmp/0001-qmux-update-tx-cap-on-recv.patch \
+ && patch -p1 < /tmp/0002-qmux-round-robin-flushable-streams.patch \
+ && patch -p1 < /tmp/0003-qmux-emit-max-data-from-flow-control.patch
 
 # Overlay interop client/server: multi-URL dumps + chunked HTTP/0.9 sends.
 COPY qmux-client.rs qmux-demo/src/bin/qmux-client.rs

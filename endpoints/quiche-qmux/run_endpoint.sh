@@ -11,22 +11,18 @@ echo "Using commit:" "$(cat commit.txt)"
 case "$TESTCASE" in
     handshake)
         HTTP_VERSION="0.9"
-        CLIENT_FC="--max-data 10000000 --max-stream-data 1000000"
-        SERVER_FC="--max-data 10000000 --max-stream-data 1000000"
+        # Large windows are fine for a tiny single-file handshake.
+        FC_OPTS="--max-data 10000000 --max-stream-data 1000000"
         ;;
     transfer)
         HTTP_VERSION="0.9"
-        # Client: keep receive windows large enough that peers like quicly do not
-        # hit fragile STREAM_DATA_BLOCKED paths (quicly has segfaulted at 64KiB).
-        # Server: connection window large for multi-MB bodies; stream window is
-        # mostly irrelevant for tiny HTTP/0.9 requests.
-        CLIENT_FC="--max-data 16000000 --max-stream-data 1000000"
-        SERVER_FC="--max-data 16000000 --max-stream-data 1000000"
+        # Match the suite / quic-go transfer windows so ~1MB+ transfers require
+        # MAX_DATA and MAX_STREAM_DATA updates (see qmux.md).
+        FC_OPTS="--max-data 131072 --max-stream-data 65536"
         ;;
     http3)
         HTTP_VERSION="h3"
-        CLIENT_FC="--max-data 10000000 --max-stream-data 1000000"
-        SERVER_FC="--max-data 10000000 --max-stream-data 1000000"
+        FC_OPTS="--max-data 10000000 --max-stream-data 1000000"
         ;;
     *)
         echo "unsupported test case: $TESTCASE"
@@ -45,7 +41,7 @@ if [ "$ROLE" == "client" ]; then
         --no-verify \
         --http-version "$HTTP_VERSION" \
         --dump-dir /downloads \
-        $CLIENT_FC \
+        $FC_OPTS \
         $CLIENT_PARAMS \
         $REQUESTS
 else
@@ -57,6 +53,6 @@ else
         --cert /certs/cert.pem \
         --key /certs/priv.key \
         --root /www \
-        $SERVER_FC \
+        $FC_OPTS \
         $SERVER_PARAMS
 fi

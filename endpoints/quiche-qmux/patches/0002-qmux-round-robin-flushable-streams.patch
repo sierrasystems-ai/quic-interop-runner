@@ -1,0 +1,15 @@
+--- a/quiche/src/qmux.rs
++++ b/quiche/src/qmux.rs
+@@ -995,7 +995,11 @@
+         let priority_key = Arc::clone(&stream.priority_key);
+         if !stream.is_flushable() {
+             streams.remove_flushable(&priority_key);
+-        } else if stream.incremental {
++        } else {
++            // Always rotate after emitting a QMux STREAM frame. Unlike the UDP
++            // path (packetization + congestion control), one non-incremental
++            // stream can otherwise monopolize every record and starve siblings
++            // that still have buffered-but-unsent data under flow control.
+             streams.remove_flushable(&priority_key);
+             streams.insert_flushable(&priority_key);
+         }
