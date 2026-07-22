@@ -14,6 +14,8 @@ if [ "$ROLE" == "client" ]; then
     echo "Starting QMux client..."
     echo "Client params: $CLIENT_PARAMS"
     echo "Test case: $TESTCASE"
+    # Intentional word-splitting: CLIENT_PARAMS / REQUESTS are space-separated argv.
+    # shellcheck disable=SC2086
     QUIC_GO_LOG_LEVEL=debug ./client $CLIENT_PARAMS $REQUESTS
 else
     echo "Running QMux server."
