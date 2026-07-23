@@ -1,0 +1,11 @@
+--- a/lib/quicly.c
++++ b/lib/quicly.c
+@@ -4266,6 +4266,8 @@ static quicly_error_t do_allocate_qmux_frame(quicly_conn_t *conn, quicly_send_con
+         size_t capacity = s->payload_buf.end - s->payload_buf.datagram - 2;
+         if (capacity > QUICLY_QMUX_MAX_RECORD_SIZE)
+             capacity = QUICLY_QMUX_MAX_RECORD_SIZE;
++        if (capacity < min_space)
++            return QUICLY_ERROR_SENDBUF_FULL;
+         s->dst = s->payload_buf.datagram + 2;
+         s->dst_end = s->dst + capacity;
+     }
