@@ -9,6 +9,7 @@ Transfer uses small initial windows (`max_data=128KiB`, `max_stream_data=64KiB`)
 1. Emit organic connection `MAX_DATA` updates from flow control (UDP send path already did)
 2. Refresh `tx_cap` after receiving `MAX_DATA`
 3. Round-robin flushable streams when emitting QMux records
+4. Keep still-flushable streams queued when the current QMux record cannot fit another STREAM header
 
 | TESTCASE | ALPN | Application |
 | --- | --- | --- |

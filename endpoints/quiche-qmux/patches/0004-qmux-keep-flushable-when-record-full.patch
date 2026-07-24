@@ -1,0 +1,19 @@
+--- a/quiche/src/qmux.rs
++++ b/quiche/src/qmux.rs
+@@ -922,11 +922,12 @@
+         let max_payload_no_len = left.saturating_sub(hdr_len_no_len);
+         let max_payload_with_len = left.saturating_sub(hdr_len_with_len);
+ 
+         if max_payload_no_len == 0 {
+-            // Can't fit even header without length.
+-            let priority_key = Arc::clone(&stream.priority_key);
+-            streams.remove_flushable(&priority_key);
+-            continue;
++            // Record is full: leave the stream flushable for the next record.
++            // Removing here permanently drops it when stream_send later sees
++            // is_flushable()==true and skips re-insert, stalling siblings under
++            // tight connection flow control.
++            return Err(Error::Done);
+         }
+ 
+         // Decide whether to omit length field:
