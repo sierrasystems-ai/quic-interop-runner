@@ -15,14 +15,11 @@ WORKDIR /quicly
 # Upstream kazuho/qmux-01 fixes:
 # 1) return SENDBUF_FULL when a new QMux record cannot hold min_space
 # 2) schedule connection-level MAX_DATA updates from QMux receive
-# 3) skip no-op MAX_DATA forced by repeated DATA_BLOCKED for the same limit
 COPY patches/0001-qmux-sendbuf-full-when-record-too-small.patch \
      patches/0002-qmux-schedule-max-data.patch \
-     patches/0003-qmux-skip-noop-max-data.patch \
      /tmp/
 RUN patch -p1 < /tmp/0001-qmux-sendbuf-full-when-record-too-small.patch \
- && patch -p1 < /tmp/0002-qmux-schedule-max-data.patch \
- && patch -p1 < /tmp/0003-qmux-skip-noop-max-data.patch
+ && patch -p1 < /tmp/0002-qmux-schedule-max-data.patch
 
 # Overlay the HTTP/0.9-over-QMux interop endpoint and register it in CMake.
 COPY qmux_interop.c examples/qmux_interop.c
