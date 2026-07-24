@@ -12,10 +12,14 @@ RUN git clone --depth 1 --branch "${QUICLY_REF}" "${QUICLY_REPO}" quicly \
 
 WORKDIR /quicly
 
-# Upstream kazuho/qmux-01: return SENDBUF_FULL when a new QMux record cannot
-# hold min_space (UDP do_allocate_frame already does the analogous check).
-COPY patches/0001-qmux-sendbuf-full-when-record-too-small.patch /tmp/
-RUN patch -p1 < /tmp/0001-qmux-sendbuf-full-when-record-too-small.patch
+# Upstream kazuho/qmux-01 fixes:
+# 1) return SENDBUF_FULL when a new QMux record cannot hold min_space
+# 2) schedule connection-level MAX_DATA updates from QMux receive
+COPY patches/0001-qmux-sendbuf-full-when-record-too-small.patch \
+     patches/0002-qmux-schedule-max-data.patch \
+     /tmp/
+RUN patch -p1 < /tmp/0001-qmux-sendbuf-full-when-record-too-small.patch \
+ && patch -p1 < /tmp/0002-qmux-schedule-max-data.patch
 
 # Overlay the HTTP/0.9-over-QMux interop endpoint and register it in CMake.
 COPY qmux_interop.c examples/qmux_interop.c
