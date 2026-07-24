@@ -5,7 +5,7 @@ HTTP/0.9 over QMux endpoint built from [h2o/quicly#662](https://github.com/h2o/q
 Library patches on that branch:
 
 1. `do_allocate_qmux_frame`: return `SENDBUF_FULL` when remaining buffer capacity is smaller than `min_space` (avoids STREAM header overrun / SIGSEGV under tight peer flow control).
-2. Schedule connection-level `MAX_DATA` updates after QMux receives stream data, matching the UDP receive path.
+2. Schedule connection-level `MAX_DATA` updates after QMux receives stream data (needed for quicly self-transfer under suite windows).
 
 Transfer uses the suite-aligned flow-control windows (`max_data=128KiB`, `max_stream_data=64KiB`) so multi-MB downloads exercise both connection- and stream-level updates.
 
