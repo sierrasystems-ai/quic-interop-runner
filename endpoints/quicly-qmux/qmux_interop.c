@@ -643,12 +643,11 @@ static void init_contexts(int small_windows)
     qctx.transport_params.max_idle_timeout = 60 * 1000;
     qctx.transport_params.max_streams_bidi = 100;
     if (small_windows) {
-        /* Small per-stream windows so transfer exercises MAX_STREAM_DATA updates.
-         * Connection window stays large: quicly's QMux receive path does not yet
-         * schedule MAX_DATA the way the 1-RTT UDP path does (see h2o/quicly#662). */
+        /* Match the suite's transfer windows so transfers exercise both
+         * connection-level and per-stream flow-control updates. */
         qctx.transport_params.max_stream_data.bidi_local = 64 * 1024;
         qctx.transport_params.max_stream_data.bidi_remote = 64 * 1024;
-        qctx.transport_params.max_data = 16 * 1024 * 1024;
+        qctx.transport_params.max_data = 128 * 1024;
     }
 
     memset(&tlsctx, 0, sizeof(tlsctx));
