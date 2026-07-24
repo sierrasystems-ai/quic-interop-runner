@@ -1,0 +1,75 @@
+--- a/quiche/src/lib.rs	2026-07-24 02:23:10.624655144 +0000
++++ quiche/src/lib.rs	2026-07-24 02:23:10.736654802 +0000
+@@ -1542,6 +1542,11 @@
+     /// The connection-level limit at which send blocking occurred.
+     blocked_limit: Option<u64>,
+ 
++    /// Last connection-level DATA_BLOCKED limit reported to the peer.
++    /// Avoids re-sending DATA_BLOCKED for the same limit (important for QMux,
++    /// where control frames are not ACK-paced the way UDP packets are).
++    data_blocked_reported: Option<u64>,
++
+     /// Idle timeout expiration time.
+     idle_timer: Option<Instant>,
+ 
+@@ -2249,6 +2254,8 @@
+ 
+             blocked_limit: None,
+ 
++            data_blocked_reported: None,
++
+             idle_timer: None,
+ 
+             draining_timer: None,
+@@ -4839,6 +4846,7 @@
+ 
+                 if push_frame_to_pkt!(b, frames, frame, left) {
+                     self.blocked_limit = None;
++                    self.data_blocked_reported = Some(limit);
+                     self.data_blocked_sent_count =
+                         self.data_blocked_sent_count.saturating_add(1);
+ 
+@@ -5975,7 +5983,9 @@
+         // Note that this is separate from "send capacity" as that also takes
+         // congestion control into consideration.
+         if self.max_tx_data - self.tx_data < len as u64 {
+-            self.blocked_limit = Some(self.max_tx_data);
++            if self.data_blocked_reported != Some(self.max_tx_data) {
++                self.blocked_limit = Some(self.max_tx_data);
++            }
+         }
+ 
+         let cap = self.tx_cap;
+@@ -6474,7 +6484,9 @@
+         let priority_key = Arc::clone(&stream.priority_key);
+ 
+         if self.max_tx_data - self.tx_data < len as u64 {
+-            self.blocked_limit = Some(self.max_tx_data);
++            if self.data_blocked_reported != Some(self.max_tx_data) {
++                self.blocked_limit = Some(self.max_tx_data);
++            }
+         }
+ 
+         if stream.send.cap()? < len {
+@@ -8644,6 +8656,11 @@
+ 
+             frame::Frame::MaxData { max } => {
+                 self.max_tx_data = cmp::max(self.max_tx_data, max);
++                if let Some(reported) = self.data_blocked_reported {
++                    if self.max_tx_data > reported {
++                        self.data_blocked_reported = None;
++                    }
++                }
+             },
+ 
+             frame::Frame::MaxStreamData { stream_id, max } => {
+--- a/quiche/src/qmux.rs	2026-07-24 02:23:10.648655071 +0000
++++ quiche/src/qmux.rs	2026-07-24 02:23:10.736654802 +0000
+@@ -553,6 +553,7 @@
+                 qlog_frames.push(frame.to_qlog());
+                 frame.to_bytes(&mut b)?;
+                 self.blocked_limit = None;
++                self.data_blocked_reported = Some(limit);
+                 self.data_blocked_sent_count =
+                     self.data_blocked_sent_count.saturating_add(1);
+             }

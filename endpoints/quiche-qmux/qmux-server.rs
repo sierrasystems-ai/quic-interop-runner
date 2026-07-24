@@ -545,12 +545,6 @@ where
 
     // Main event loop.
     loop {
-        // Continue any flow-control-blocked responses.
-        flush_pending_http09(&mut conn, &mut pending_responses)?;
-
-        // Send any pending data.
-        qmux.flush(&mut conn).await?;
-
         // Process readable streams.
         for stream_id in conn.readable().collect::<Vec<_>>() {
             loop {
@@ -593,9 +587,10 @@ where
             }
         }
 
+        // Queue as much response data as current flow control allows, then
+        // flush once. Flushing twice per wake re-armed DATA_BLOCKED for the
+        // same limit and amplified MAX_DATA updates from some peers.
         flush_pending_http09(&mut conn, &mut pending_responses)?;
-
-        // Flush any responses we just generated.
         qmux.flush(&mut conn).await?;
 
         // Check if connection is closed.
@@ -653,11 +648,23 @@ fn flush_pending_http09(
             continue;
         };
         while *offset < body.len() {
-            match conn.stream_send(stream_id, &body[*offset..], false) {
+            let capacity = match conn.stream_capacity(stream_id) {
+                Ok(v) => v,
+                Err(quiche::Error::Done) |
+                Err(quiche::Error::InvalidStreamState(_)) => break,
+                Err(e) => return Err(e.into()),
+            };
+            if capacity == 0 {
+                // Signal blocked without writing the whole remainder (which
+                // would re-arm DATA_BLOCKED for the same limit every time).
+                let _ = conn.stream_writable(stream_id, 1);
+                break;
+            }
+            let want = (body.len() - *offset).min(capacity);
+            match conn.stream_send(stream_id, &body[*offset..*offset + want], false)
+            {
                 Ok(0) => break,
-                Ok(n) => {
-                    *offset += n;
-                },
+                Ok(n) => *offset += n,
                 Err(quiche::Error::Done) => break,
                 Err(e) => return Err(e.into()),
             }

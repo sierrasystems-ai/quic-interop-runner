@@ -10,6 +10,7 @@ Transfer uses small initial windows (`max_data=128KiB`, `max_stream_data=64KiB`)
 2. Refresh `tx_cap` after receiving `MAX_DATA`
 3. Round-robin flushable streams when emitting QMux records
 4. Keep still-flushable streams queued when the current QMux record cannot fit another STREAM header
+5. Suppress duplicate connection `DATA_BLOCKED` frames for the same limit
 
 | TESTCASE | ALPN | Application |
 | --- | --- | --- |

@@ -20,15 +20,18 @@ RUN find . -type f \( -name '*.rs' -o -name '*.h' -o -name '*.c' -o -name '*.md'
 # 2) refresh tx_cap after MAX_DATA (QUIC recv path already does this)
 # 3) round-robin flushable streams so one body cannot starve siblings
 # 4) keep flushable streams queued when the current record is full
+# 5) suppress duplicate DATA_BLOCKED for the same connection limit
 COPY patches/0001-qmux-update-tx-cap-on-recv.patch \
      patches/0002-qmux-round-robin-flushable-streams.patch \
      patches/0003-qmux-emit-max-data-from-flow-control.patch \
      patches/0004-qmux-keep-flushable-when-record-full.patch \
+     patches/0005-qmux-suppress-duplicate-data-blocked.patch \
      /tmp/
 RUN patch -p1 < /tmp/0001-qmux-update-tx-cap-on-recv.patch \
  && patch -p1 < /tmp/0002-qmux-round-robin-flushable-streams.patch \
  && patch -p1 < /tmp/0003-qmux-emit-max-data-from-flow-control.patch \
- && patch -p1 < /tmp/0004-qmux-keep-flushable-when-record-full.patch
+ && patch -p1 < /tmp/0004-qmux-keep-flushable-when-record-full.patch \
+ && patch -p1 < /tmp/0005-qmux-suppress-duplicate-data-blocked.patch
 
 # Overlay interop client/server: multi-URL dumps + chunked HTTP/0.9 sends.
 COPY qmux-client.rs qmux-demo/src/bin/qmux-client.rs
